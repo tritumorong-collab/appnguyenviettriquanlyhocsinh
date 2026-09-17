@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -9,6 +10,18 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const DATA_DIR = path.join(__dirname, "data");
+const SAVED_STATE_FILE = path.join(DATA_DIR, "saved_state.json");
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {
+    console.error("Failed to create data directory", e);
+  }
+}
 
 const app = express();
 const PORT = 3000;
@@ -38,6 +51,67 @@ app.get("/api/health", (_req, res) => {
     hasApiKey: !!process.env.GEMINI_API_KEY,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Save persistent classroom updates (students, assignments, submissions, settings)
+app.post("/api/data/save", async (req, res) => {
+  try {
+    const { students, assignments, submissions, settings } = req.body;
+    if (!students || !assignments || !submissions) {
+      return res.status(400).json({ error: "Thiếu dữ liệu cần lưu" });
+    }
+
+    const payload = {
+      updatedAt: new Date().toISOString(),
+      data: {
+        students,
+        assignments,
+        submissions,
+        settings,
+      },
+    };
+
+    await fs.promises.writeFile(SAVED_STATE_FILE, JSON.stringify(payload, null, 2), "utf-8");
+    console.log(`[Storage] Classroom updates saved successfully at ${payload.updatedAt}`);
+
+    return res.json({
+      success: true,
+      updatedAt: payload.updatedAt,
+      message: "Đã lưu cập nhật thay đổi thành công vào máy chủ",
+      totalStudents: students.length,
+      totalAssignments: assignments.length,
+      totalSubmissions: submissions.length,
+    });
+  } catch (error: any) {
+    console.error("Error saving classroom data:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Không thể lưu dữ liệu trên máy chủ",
+    });
+  }
+});
+
+// Load persistent classroom updates
+app.get("/api/data/load", async (_req, res) => {
+  try {
+    if (fs.existsSync(SAVED_STATE_FILE)) {
+      const raw = await fs.promises.readFile(SAVED_STATE_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      return res.json({
+        hasSavedData: true,
+        updatedAt: parsed.updatedAt,
+        data: parsed.data,
+      });
+    }
+    return res.json({
+      hasSavedData: false,
+    });
+  } catch (error) {
+    console.error("Error loading classroom data:", error);
+    return res.json({
+      hasSavedData: false,
+    });
+  }
 });
 
 // AI suggested comment for primary school student

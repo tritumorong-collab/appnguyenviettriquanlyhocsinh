@@ -10,7 +10,10 @@ import {
   X, 
   Sparkles,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  Save,
+  Check,
+  RefreshCw
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -27,7 +30,10 @@ export const Navbar: React.FC = () => {
     markAlertRead,
     dismissAlert,
     settings,
-    setSelectedStudentForDetail
+    setSelectedStudentForDetail,
+    saveStatus,
+    lastSavedTime,
+    saveAllChanges
   } = useApp();
 
   const [showAlertMenu, setShowAlertMenu] = useState(false);
@@ -148,6 +154,33 @@ export const Navbar: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* Quick Save Changes Button */}
+            <button
+              id="btn-save-all-changes"
+              type="button"
+              onClick={() => saveAllChanges(true)}
+              disabled={saveStatus === 'saving'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-medium text-xs sm:text-sm shadow-xs transition-all disabled:opacity-75 cursor-pointer"
+              title="Lưu tất cả cập nhật vào hệ thống và máy chủ"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-200" />
+                  <span>Đang lưu...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span className="font-semibold">Lưu cập nhật</span>
+                  {lastSavedTime && (
+                    <span className="hidden md:inline-block text-[11px] text-indigo-200 font-normal ml-0.5">
+                      ({lastSavedTime})
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
 
             {/* Notifications Bell (Teacher alerts) */}
             {role === 'teacher' && (

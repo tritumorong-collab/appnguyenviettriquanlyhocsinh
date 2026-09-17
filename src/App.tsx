@@ -9,6 +9,7 @@ import { SettingsView } from './components/SettingsView';
 import { StudentPortalView } from './components/StudentPortalView';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { GradingModal } from './components/GradingModal';
+import { SaveToast } from './components/SaveToast';
 
 const MainContent: React.FC = () => {
   const { 
@@ -61,6 +62,9 @@ const MainContent: React.FC = () => {
           onClose={() => setSelectedSubmissionForGrading(null)}
         />
       )}
+
+      {/* Global save toast notification */}
+      <SaveToast />
     </div>
   );
 };

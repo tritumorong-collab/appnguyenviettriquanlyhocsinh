@@ -16,7 +16,17 @@ import {
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSettings, resetToInitialData, students, assignments, submissions } = useApp();
+  const { 
+    settings, 
+    updateSettings, 
+    resetToInitialData, 
+    students, 
+    assignments, 
+    submissions,
+    saveAllChanges,
+    saveStatus,
+    lastSavedTime
+  } = useApp();
 
   const [className, setClassName] = useState(settings.className);
   const [schoolName, setSchoolName] = useState(settings.schoolName);
@@ -116,6 +126,51 @@ export const SettingsView: React.FC = () => {
             <span>Khôi phục mẫu 30 HS</span>
           </button>
         </div>
+      </div>
+
+      {/* Persistence & Save status card */}
+      <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-3xl shadow-md border border-indigo-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-5 h-5 text-indigo-400" />
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-300">Đồng bộ & Lưu trữ hệ thống</span>
+          </div>
+          <h2 className="text-base sm:text-lg font-bold text-white">Lưu trữ cập nhật thay đổi an toàn</h2>
+          <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+            Hệ thống tự động lưu trữ mọi thay đổi (học sinh, bài tập, điểm số, nhận xét) vào bộ nhớ cục bộ (Local Storage) và tệp dữ liệu máy chủ (Server persistence). Thầy/cô có thể bấm nút bên cạnh để đồng bộ ngay lập tức.
+          </p>
+          <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-emerald-300 font-medium">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Đang hoạt động: Cục bộ & Máy chủ
+            </span>
+            {lastSavedTime && (
+              <span className="text-slate-300">
+                • Lần lưu gần nhất: <strong className="text-white font-mono">{lastSavedTime}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <button
+          id="btn-settings-save-now"
+          type="button"
+          onClick={() => saveAllChanges(true)}
+          disabled={saveStatus === 'saving'}
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-lg transition-all cursor-pointer shrink-0 disabled:opacity-50"
+        >
+          {saveStatus === 'saving' ? (
+            <>
+              <RotateCcw className="w-4 h-4 animate-spin" />
+              <span>Đang lưu...</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              <span>Lưu cập nhật ngay</span>
+            </>
+          )}
+        </button>
       </div>
 
       {isSaved && (

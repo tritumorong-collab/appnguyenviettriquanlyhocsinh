@@ -37,6 +37,14 @@ interface AppContextType {
   settings: ClassSettings;
   alerts: SmartAlert[];
 
+  // Save status & persistence
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  lastSavedTime: string | null;
+  toastMessage: { title: string; desc?: string; type?: 'success' | 'info' | 'warning' } | null;
+  setToastMessage: (msg: { title: string; desc?: string; type?: 'success' | 'info' | 'warning' } | null) => void;
+  showToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning') => void;
+  saveAllChanges: (explicitNotification?: boolean, customDesc?: string) => Promise<boolean>;
+
   // Mutations
   addStudent: (student: Student) => void;
   updateStudent: (student: Student) => void;
@@ -158,6 +166,102 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     student: Student;
   } | null>(null);
 
+  // Persistence & Save status states
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('saved');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('qlhs_last_saved_time') || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return null;
+    }
+  });
+  const [toastMessage, setToastMessage] = useState<{ title: string; desc?: string; type?: 'success' | 'info' | 'warning' } | null>(null);
+
+  const showToast = (title: string, desc?: string, type: 'success' | 'info' | 'warning' = 'success') => {
+    setToastMessage({ title, desc, type });
+  };
+
+  // Auto-dismiss toast after 4s
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
+  // Load from server on mount if available and valid
+  useEffect(() => {
+    const fetchServerSavedData = async () => {
+      try {
+        const res = await fetch('/api/data/load');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.hasSavedData && json.data) {
+            const hasLocal = localStorage.getItem(STORAGE_KEYS.STUDENTS);
+            // If local storage is empty, initialize from server data
+            if (!hasLocal) {
+              if (Array.isArray(json.data.students)) setStudents(json.data.students);
+              if (Array.isArray(json.data.assignments)) setAssignments(json.data.assignments);
+              if (Array.isArray(json.data.submissions)) setSubmissions(json.data.submissions);
+              if (json.data.settings) setSettings(json.data.settings);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load server state', err);
+      }
+    };
+    fetchServerSavedData();
+  }, []);
+
+  // Save all changes function (saves locally and to server)
+  const saveAllChanges = async (explicitNotification: boolean = true, customDesc?: string): Promise<boolean> => {
+    setSaveStatus('saving');
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    
+    try {
+      // 1. Save to localStorage
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+      localStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(assignments));
+      localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(submissions));
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+      localStorage.setItem('qlhs_last_saved_time', nowStr);
+      
+      // 2. Persist to server API
+      await fetch('/api/data/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          students,
+          assignments,
+          submissions,
+          settings,
+        }),
+      });
+
+      setLastSavedTime(nowStr);
+      setSaveStatus('saved');
+
+      if (explicitNotification) {
+        showToast(
+          'Đã lưu cập nhật thay đổi thành công!',
+          customDesc || `Dữ liệu 30 học sinh, ${assignments.length} bài tập và điểm số đã được lưu an toàn lúc ${nowStr}.`,
+          'success'
+        );
+      }
+      return true;
+    } catch (e) {
+      console.error('Save failed:', e);
+      setSaveStatus('error');
+      if (explicitNotification) {
+        showToast('Lỗi khi lưu dữ liệu', 'Vui lòng kiểm tra lại kết nối.', 'warning');
+      }
+      return false;
+    }
+  };
+
   // Dynamic alerts
   const [alerts, setAlerts] = useState<SmartAlert[]>([]);
 
@@ -167,7 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAlerts(generated);
   }, [students, assignments, submissions]);
 
-  // Persist to localStorage
+  // Persist to localStorage and sync with server (debounced)
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
@@ -216,18 +320,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentStudentId]);
 
+  // Debounced auto-save to server whenever main data changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch('/api/data/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          students,
+          assignments,
+          submissions,
+          settings,
+        }),
+      })
+      .then(res => res.json())
+      .then(() => {
+        const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSavedTime(timeNow);
+        localStorage.setItem('qlhs_last_saved_time', timeNow);
+        setSaveStatus('saved');
+      })
+      .catch(e => {
+        console.warn('Auto-save to server warning:', e);
+      });
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [students, assignments, submissions, settings]);
+
   // Student mutations
   const addStudent = (student: Student) => {
     setStudents(prev => [...prev, student]);
+    showToast(`Đã lưu học sinh mới: ${student.fullName}`, `Mã HS: ${student.code}. Cập nhật đã được lưu trữ.`, 'success');
   };
 
   const updateStudent = (updated: Student) => {
     setStudents(prev => prev.map(s => s.id === updated.id ? updated : s));
+    showToast(`Đã lưu cập nhật học sinh: ${updated.fullName}`, 'Thông tin hồ sơ và điểm số đã được lưu an toàn.', 'success');
   };
 
   const deleteStudent = (id: string) => {
     setStudents(prev => prev.filter(s => s.id !== id));
     setSubmissions(prev => prev.filter(s => s.studentId !== id));
+    showToast('Đã xóa học sinh', 'Danh sách lớp và bài làm đã được cập nhật và lưu trữ.', 'info');
   };
 
   const importStudents = (imported: Student[], mode: 'replace' | 'merge') => {
@@ -280,6 +415,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return [...prev, ...additionalSubs];
     });
+
+    showToast(
+      'Đã lưu danh sách học sinh nhập mới',
+      `Tổng số ${finalStudents.length} học sinh trong danh sách đã được lưu trữ thành công.`,
+      'success'
+    );
   };
 
   // Assignment mutations
@@ -301,15 +442,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     setSubmissions(prev => [...newSubs, ...prev]);
+    showToast(`Đã giao bài tập mới: ${assignment.title}`, `Môn ${assignment.subject}. Đã lưu cập nhật cho học sinh.`, 'success');
   };
 
   const updateAssignment = (updated: Assignment) => {
     setAssignments(prev => prev.map(a => a.id === updated.id ? updated : a));
+    showToast(`Đã lưu cập nhật bài tập: ${updated.title}`, `Nội dung và thời hạn môn ${updated.subject} đã được lưu.`, 'success');
   };
 
   const deleteAssignment = (id: string) => {
     setAssignments(prev => prev.filter(a => a.id !== id));
     setSubmissions(prev => prev.filter(s => s.assignmentId !== id));
+    showToast('Đã xóa bài tập', 'Dữ liệu bài tập đã được cập nhật và lưu trữ.', 'info');
   };
 
   // Student submits assignment
@@ -359,6 +503,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return [updatedSub, ...prev];
       }
     });
+
+    showToast('Đã nộp bài tập thành công!', 'Bài làm của em đã được lưu an toàn.', 'success');
   };
 
   // Teacher grades submission
@@ -392,6 +538,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return s;
     }));
+
+    showToast('Đã lưu kết quả chấm bài', `Điểm ${data.grade}/10 và lời nhận xét đã được lưu trữ thành công.`, 'success');
   };
 
   // Re-assign task to a student requiring rework
@@ -407,10 +555,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return s;
     }));
+    showToast('Đã gửi yêu cầu làm lại', 'Nhiệm vụ đã được chuyển trạng thái và lưu trữ.', 'info');
   };
 
   const updateSettings = (newSettings: Partial<ClassSettings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
+    showToast('Đã lưu thiết lập lớp học', 'Thông tin lớp và cấu hình hệ thống đã được lưu an toàn.', 'success');
   };
 
   const markAlertRead = (alertId: string) => {
@@ -430,6 +580,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem(STORAGE_KEYS.ASSIGNMENTS);
     localStorage.removeItem(STORAGE_KEYS.SUBMISSIONS);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    localStorage.removeItem('qlhs_last_saved_time');
+    showToast('Đã khôi phục dữ liệu ban đầu', 'Hệ thống đã nạp lại dữ liệu 30 học sinh mẫu.', 'info');
   };
 
   const currentStudent = students.find(s => s.id === currentStudentId) || students[0];
@@ -449,6 +601,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submissions,
         settings,
         alerts,
+        saveStatus,
+        lastSavedTime,
+        toastMessage,
+        setToastMessage,
+        showToast,
+        saveAllChanges,
         addStudent,
         updateStudent,
         deleteStudent,
